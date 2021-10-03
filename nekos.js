@@ -48,13 +48,13 @@ var sigint = false;
 async function parseFrames(fn) {
     return  (await $`magick identify -format "%T %W %H\n" ${fn}`).stdout.split("\n")
     .map(t => t.split(" "))
-    .map(t => ({ d: (1 / parseInt(t[0])) * 100, w: parseInt(t[1]), h: parseInt(t[2]) }))
+    .map(t => ({ d: (1 / parseInt(t[0])) * 100, w: parseInt(t[1]) * 2.2, h: parseInt(t[2]) }))
     .map(t => {
-        const scale = Math.min(sizes[1] / t.w, sizes[0] / (t.h - (verbose ? 1 : 0)));
+        const scale = Math.min(sizes[1] / t.w, (sizes[0] - (verbose && fn.endsWith(".gif") ? 1 : 0)) / t.h);
         return {
             ...t,
             sw: Math.floor(t.w * scale),
-            sh: Math.floor(t.h * scale - (verbose ? 1 : 0)),
+            sh: Math.floor((t.h - (verbose && fn.endsWith(".gif") ? 1 : 0)) * scale),
             scale
         };
     });
