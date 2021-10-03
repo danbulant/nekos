@@ -87,6 +87,7 @@ async function showImage(type) {
             await sleep(frameLens[frame] - (end - start));
             frame++;
         }
+        process.stdout.write("\n");
         await $`rm -r ${tempdir}`;
     }
 }
