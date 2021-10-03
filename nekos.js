@@ -28,16 +28,19 @@ Usage:
 
 Options:
     --help Show this screen
-    --loop [interval] Loops the image to be repeated in select interval (randomizes the image each time), in ms. Defaults to 2000ms.
-    --gif renders all GIF frames, according to their delay(s). Looped by default. When enabled, --loop is ignored. Option ignored if url isn't GIF.
-    --url Shows current image's URL before the image`);
+    --loop [interval] -l Loops the image to be repeated in select interval (randomizes the image each time), in ms. Defaults to 2000ms.
+    --gif -g renders all GIF frames, according to their delay(s). Looped by default. When enabled, --loop is ignored. Option ignored if url isn't GIF.
+    --url -u Shows current image's URL before the image
+    --verbose -v Shows more information when running command. Enables --url flag.`);
 
     process.exit(0);
 }
 const type = argv._[0] || "neko";
 const istty = tty.isatty(process.stdout.fd);
-const heightOut = await $`stty size | awk '{print $1}'`;
-const height = parseInt(heightOut.stdout);
+const sizeSrc = await $`stty size`;
+const sizes = sizeSrc.stdout.split(" ").map(t => parseInt(t));
+const verbose = argv.verbose || argv.v;
+const showUrl = verbose || argv.url || argv.u;
 
 var sigPreventable = false;
 var sigint = false;
@@ -56,14 +59,14 @@ async function showImage(type) {
         argv.colors !== false && "--colors"
     ].filter(t => t);
 
-    if(argv.url) console.log(url);
-    if(!argv.gif || !url.endsWith(".gif")) {
-        await $`curl -fsSL ${url} | convert - jpeg:- | jp2a --height=${height-1} ${args} -`.pipe(process.stdout);
+    if(showUrl) console.log(url);
+    if((!argv.g && !argv.gif) || !url.endsWith(".gif")) {
+        await $`curl -fsSL ${url} | convert - jpeg:- | jp2a --size=${sizes[1] + "x" + sizes[0]} ${args} -`.pipe(process.stdout);
     } else {
         const tempdir = await fs.mkdtemp(path.join(os.tmpdir(), "nekos-"));
         await $`curl -fsSL ${url} -o ${tempdir + "/src.gif"}`;
         await $`convert -coalesce ${tempdir + "/src.gif"} ${tempdir + "/img.jpg"}`;
-        const frameLens = (await $`magick identify -format "%T\n" ${tempdir + "/src.gif"}`).stdout.split("\n").map(t => 1 / parseInt(t));
+        const frameLens = (await $`magick identify -format "%T\n" ${tempdir + "/src.gif"}`).stdout.split("\n").map(t => (1 / parseInt(t)) * 100);
 
         sigPreventable = true;
         var frame = 0;
@@ -72,16 +75,19 @@ async function showImage(type) {
             if(sigint) break;
             const start = performance.now();
             try {
-                await $`jp2a ${args} --height=${height-1} ${tempdir + "/img-" + frame + ".jpg"}`.pipe(process.stdout);
+                const out = await $`jp2a ${args} --size=${sizes[1] + "x" + (sizes[0] - (verbose ? 1 : 0))} ${tempdir + "/img-" + frame + ".jpg"} | sed -z '$ s/\\n$//'`;
+                process.stdout.write("\n" + out.stdout);
             } catch(e) {
+                if(e.exitCode === null) break;
+                console.warn(e);
                 break;
             }
             const end = performance.now();
-            console.log(`${frame}/${frameLens.length} ${frameLens[frame]}ms ${end-start}ms`);
+            if(verbose) process.stdout.write(`\n${frame + 1}/${frameLens.length - 2} ${frameLens[frame]}ms ${end-start}ms`);
             await sleep(frameLens[frame] - (end - start));
             frame++;
         }
-        await fs.unlink(tempdir);
+        await $`rm -r ${tempdir}`;
     }
 }
 
@@ -91,8 +97,8 @@ process.on("SIGINT", (s) => {
 });
 
 await showImage(type);
-if(argv.loop) {
-    const offset = parseInt(argv.loop);
+if(argv.loop || argv.l) {
+    const offset = parseInt(argv.loop || argv.l);
     const delay = isNaN(offset) ? 2000 : offset;
     sigPreventable = true;
     while(true) {
