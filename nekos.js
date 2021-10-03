@@ -45,6 +45,21 @@ const showUrl = verbose || argv.url || argv.u;
 var sigPreventable = false;
 var sigint = false;
 
+async function parseFrames(fn) {
+    return  (await $`magick identify -format "%T %W %H\n" ${fn}`).stdout.split("\n")
+    .map(t => t.split(" "))
+    .map(t => ({ d: (1 / parseInt(t[0])) * 100, w: parseInt(t[1]), h: parseInt(t[2]) }))
+    .map(t => {
+        const scale = Math.min(sizes[1] / t.w, sizes[0] / (t.h - (verbose ? 1 : 0)));
+        return {
+            ...t,
+            sw: Math.floor(t.w * scale),
+            sh: Math.floor(t.h * scale - (verbose ? 1 : 0)),
+            scale
+        };
+    });
+}
+
 async function showImage(type) {
     const imgurl = `https://nekos.life/api/v2/img/` + type;
     const urlOut = await $`curl -fsSL ${imgurl} | jq -r ".url"`;
@@ -60,22 +75,28 @@ async function showImage(type) {
     ].filter(t => t);
 
     if(showUrl) console.log(url);
+    const tempdir = await fs.mkdtemp(path.join(os.tmpdir(), "nekos-"));
     if((!argv.g && !argv.gif) || !url.endsWith(".gif")) {
-        await $`curl -fsSL ${url} | convert - jpeg:- | jp2a --size=${sizes[1] + "x" + sizes[0]} ${args} -`.pipe(process.stdout);
+        const fn = path.join(tempdir, path.basename(url).substr(path.extname(url)) + ".jpg");
+        await $`curl -fsSL ${url} | convert - ${fn}`;
+        const frames = await parseFrames(fn);
+
+        const out = await $`jp2a --width=${frames[0].sw} --height=${frames[0].sh} ${args} ${fn}`;
+        process.stdout.write(out.stdout.trimRight());
+        await $`rm -r ${tempdir}`;
     } else {
-        const tempdir = await fs.mkdtemp(path.join(os.tmpdir(), "nekos-"));
         await $`curl -fsSL ${url} -o ${tempdir + "/src.gif"}`;
         await $`convert -coalesce ${tempdir + "/src.gif"} ${tempdir + "/img.jpg"}`;
-        const frameLens = (await $`magick identify -format "%T\n" ${tempdir + "/src.gif"}`).stdout.split("\n").map(t => (1 / parseInt(t)) * 100);
+        const frames = await parseFrames(path.join(tempdir, "src.gif"));
 
         sigPreventable = true;
         var frame = 0;
         while(true) {
-            if(frame >= frameLens.length - 2) frame = 0;
+            if(frame >= frames.length - 2) frame = 0;
             if(sigint) break;
             const start = performance.now();
             try {
-                const out = await $`jp2a ${args} --size=${sizes[1] + "x" + (sizes[0] - (verbose ? 1 : 0))} ${tempdir + "/img-" + frame + ".jpg"} | sed -z '$ s/\\n$//'`;
+                const out = await $`jp2a ${args} --width=${frames[frame].sw} --height=${frames[frame].sh} ${tempdir + "/img-" + frame + ".jpg"} | sed -z '$ s/\\n$//'`;
                 process.stdout.write("\n" + out.stdout);
             } catch(e) {
                 if(e.exitCode === null) break;
@@ -83,8 +104,8 @@ async function showImage(type) {
                 break;
             }
             const end = performance.now();
-            if(verbose) process.stdout.write(`\n${frame + 1}/${frameLens.length - 2} ${frameLens[frame]}ms ${end-start}ms`);
-            await sleep(frameLens[frame] - (end - start));
+            if(verbose) process.stdout.write(`\n${frame + 1}/${frames.length - 2} ${frames[frame].d}ms ${end-start}ms w${frames[frame].sw} h${frames[frame].sh} scale=${frames[frame].scale}`);
+            await sleep(frames[frame].d - (end - start));
             frame++;
         }
         process.stdout.write("\n");
@@ -108,4 +129,6 @@ if(argv.loop || argv.l) {
         if(sigint) break;
         await showImage(type);
     }
+} else {
+    process.stdout.write("\n");
 }
