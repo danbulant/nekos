@@ -13,7 +13,7 @@ if(argv.help) {
     // /** //** /**/******* /****   /**      /**/*********
     // /**  //**/**/**////  /**/**  /**      /**////////**
     // /**   //****/**      /**//** //**     **        /**
-    // // /**    //***/********/** //** //*******   ******** 
+    // /**    //***/********/** //** //*******   ******** 
     // //      /// //////// //   //   ///////   ////////
     console.log(`nekos
 Shows images of nekos.
@@ -46,7 +46,7 @@ var sigPreventable = false;
 var sigint = false;
 
 async function parseFrames(fn) {
-    return  (await $`magick identify -format "%T %W %H\n" ${fn}`).stdout.split("\n")
+    return  (await $`identify -format "%T %W %H\n" ${fn}`).stdout.split("\n")
     .map(t => t.split(" "))
     .map(t => ({ d: (1 / parseInt(t[0])) * 100, w: parseInt(t[1]) * 2.2, h: parseInt(t[2]) }))
     .map(t => {
